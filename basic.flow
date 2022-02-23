@@ -1,0 +1,128 @@
+import lingo/pegcode/driver;
+import runtime;
+import ds/array;
+
+BasicProgram(lines : [BasicLine]);
+BasicLine(lineNumber : int, command : BasicCommand);
+
+Expr ::= Add, Sub, Mult, Div, Greater, Less, Equal, GreaterOrEqual, LessOrEqual, NotEqual, BasicAND, BasicOR;
+
+Operand ::= Int, Var, Neg, BasicOp;
+BasicOp(left : Operand, right : Operand, op : Expr);
+Int(val : int);
+Var(name : string);
+Neg(op : Operand);
+
+RawOp(op : Expr, operand : Operand);
+
+Add(); Sub(); Mult(); Div();
+Greater(); Less(); Equal();
+GreaterOrEqual(); LessOrEqual(); NotEqual();
+BasicAND(); BasicOR();
+
+BasicCommand ::= BasicAssignment, BasicPRINT, BasicIF, BasicGOTO, NoCommand;
+
+BasicAssignment(var : Var, right : Operand);
+BasicPRINT(value : Operand);
+BasicGOTO(lineNumber : int);
+BasicIF(condition : Operand, executableCode : BasicCommand, elseCode : BasicCommand);
+NoCommand();
+
+buildOp(xs : [flow]) {
+	fold(xs[1], xs[0], \acc, x : RawOp -> BasicOp(acc, x.operand, x.op))
+}
+
+basicPegActions = {
+	t = setTree(defaultPegActions.t, "buildOp", buildOp);
+	SemanticActions(t)
+}
+
+parseBasic(s : string) -> BasicProgram {
+	parsic(basicGrammar(), s, basicPegActions);
+}
+
+lingoGrammarOp : ref Maybe<[PegOp]> = ref None();
+
+basicGrammar() {
+	onlyOnce(lingoGrammarOp, \ -> {
+		compilePegGrammar("#include sandbox/basic/basic.lingo")
+	});
+}
+
+solveExpr(operand : Operand, Variables : Tree<string, int>) -> int {
+	switch (operand : Operand) {
+		Neg(op) : -1 * solveExpr(op, Variables)
+		Int(value) : value
+		Var(name) : lookupTreeDef(Variables, name, intMax)
+		BasicOp(left, right, op) :
+		{
+			leftOperandValue = solveExpr(left, Variables);
+			rightOperandValue = solveExpr(right, Variables);
+			switch(op : Expr) { 
+				Add() : leftOperandValue + rightOperandValue
+				Sub() : leftOperandValue - rightOperandValue
+				Mult() : leftOperandValue * rightOperandValue
+				Div() : leftOperandValue / rightOperandValue
+
+				Greater() : if(leftOperandValue > rightOperandValue) b2i(true) else b2i(false)
+				Less() : if(leftOperandValue < rightOperandValue) b2i(true) else b2i(false)
+				Equal() : if(leftOperandValue == rightOperandValue) b2i(true) else b2i(false)
+
+				GreaterOrEqual() : if(leftOperandValue >= rightOperandValue) b2i(true) else b2i(false)
+				LessOrEqual() : if(leftOperandValue <= rightOperandValue) b2i(true) else b2i(false) 
+				NotEqual() : if(leftOperandValue != rightOperandValue) b2i(true) else b2i(false)
+
+				BasicAND() : b2i(i2b(leftOperandValue) && i2b(rightOperandValue))
+				BasicOR() : b2i(i2b(leftOperandValue) || i2b(rightOperandValue)) 
+			}
+		}
+	}
+}
+
+runBasicCommand(lineIdx : int, command : BasicCommand, Variables : Tree<string, int>) -> LineIdxOrNum {
+	switch (command : BasicCommand) {
+		BasicPRINT(expr) : { 
+			println(solveExpr(expr, Variables));
+			LineIdxOrNum(Idx(), lineIdx + 1, Variables)
+		}
+		BasicGOTO(lineNum) : LineIdxOrNum(Num(), lineNum, Variables)
+		BasicIF(condition, executableCode, elseCode) : {
+			nextCommand = if(solveExpr(condition, Variables) == b2i(true)) executableCode else elseCode;
+			runBasicCommand(lineIdx, nextCommand, Variables)
+		}
+		BasicAssignment(var, expr) : LineIdxOrNum(Idx(), lineIdx + 1, setTree(Variables, var.name, solveExpr(expr, Variables)))
+		NoCommand() : LineIdxOrNum(Idx(), lineIdx + 1, Variables)
+	}
+}
+
+IdxOrNum ::= Idx, Num;
+Idx(); Num();
+
+LineIdxOrNum(idxOrNum : IdxOrNum, value : int, Variables : Tree<string, int>);
+
+GetIdx(lineIdxOrNum : LineIdxOrNum, LinesTree : Tree<int, int>) {
+	switch(lineIdxOrNum.idxOrNum : IdxOrNum) {
+		Idx() : if(lineIdxOrNum.value < sizeTree(LinesTree)) lineIdxOrNum.value else -1
+		Num() : lookupTreeDef(LinesTree, lineIdxOrNum.value, -1)
+	}
+}
+
+while(nextLineIdxOrNum : LineIdxOrNum, Lines : [BasicLine], LinesTree : Tree<int, int>) { 
+	idx = GetIdx(nextLineIdxOrNum, LinesTree);
+	if(idx >= 0) while(runBasicCommand(idx, Lines[idx].command, nextLineIdxOrNum.Variables), Lines, LinesTree);
+}
+
+runBasic(p : BasicProgram) {
+	SortedLines = sort(p.lines);
+	LinesTree = pairs2tree(mapi(SortedLines, \i, x -> Pair(x.lineNumber, i)));
+	Variables = makeTree();
+	while(LineIdxOrNum(Idx(), 0, Variables), SortedLines, LinesTree);
+}
+
+main() {
+    program : BasicProgram = parseBasic(" 
+	4 PRINT -  5
+	5 PRINT 111
+	");
+	runBasic(program)
+}

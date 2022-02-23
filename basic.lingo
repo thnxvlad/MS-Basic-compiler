@@ -1,0 +1,52 @@
+basicProgram = basicLine*:bp { BasicProgram(:bp) };
+basicLine = ws ('0'-'9')+$lineNum ws basicCommand:bc ws { BasicLine(s2i(:lineNum), :bc) };
+
+basicCommand = "PRINT" ws expr:e { BasicPRINT(:e) }
+| "GOTO" ws int:lineNum { BasicGOTO(:lineNum) }
+| "IF" ws expr:e ws basicCommand:bc1 ws "ELSE" ws basicCommand:bc2 { BasicIF(:e, :bc1, :bc2) }
+| "IF" ws expr:e ws basicCommand:bc1 { BasicIF(:e, :bc1, NoCommand()) }
+| var$v ws '=' ws expr:e { BasicAssignment(Var($v), :e) };
+
+expr = boolHighPriority:b boolOpLowPriority:os { buildOp(:b, :os) };
+
+boolHighPriority = comparison:comp boolOpHighPriority*:os { buildOp(:comp, :os) };
+
+boolOpHighPriority = ws boolSignHighPriority:op ws comparison:comp { RawOp(:op, :comp) };
+boolOpLowPriority = ws boolSignLowPriority:op ws boolHighPriority:b { RawOp(:op, :b) };
+
+boolSignHighPriority = "AND" { BasicAND() };
+boolSignLowPriority = "OR" { BasicOR() };
+
+comparison = math:e1 ws compSign:op ws math:e2 { BasicOp(:e1, :e2, :op) }
+| math:m { :m };
+
+compSign = ">=" { GreaterOrEqual() } | "<=" { LessOrEqual() } | "<>" { NotEqual() }
+| ">" { Greater() } | "<" { Less() } | "==" { Equal() };
+
+math = mathHighPriority:mhp opLowPriority*:os { buildOp(:mhp, :os) };
+
+mathHighPriority = operand:o opHighPriority*:os { buildOp(:o, :os) };
+
+opHighPriority = ws signHighPriority:op ws operand:o { RawOp(:op, :o) };
+opLowPriority = ws signLowPriority:op ws mathHighPriority:mhp { RawOp(:op, :mhp) };
+
+signHighPriority = ("*" { Mult() } | "/" { Div() });
+signLowPriority = ("+" { Add() } | "-" { Sub() });
+
+operand = positiveOperand | negativeOperand;
+
+negativeOperand = '-' ws positiveOperand:op { Neg(:op) };
+
+positiveOperand = var$s { Var($s) }
+| int:i { Int(:i) }
+| "(" ws expr:e ws ")" { :e };
+
+int = (('0'-'9')+)$d { s2i($d) };
+var = letter letterOrDigit*;
+
+letterOrDigit = letter | digit;
+letter = 'a'-'z' | 'A'-'Z';
+digit = '0'-'9';
+
+ws = s*;
+s = " " | "\t" | "\n" | "\r";
