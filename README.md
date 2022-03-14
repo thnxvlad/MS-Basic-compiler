@@ -1,1 +1,1 @@
-MS Basic compiler written in FLOW9
+More info about FLOW9 - https://github.com/area9innovation/flow9
